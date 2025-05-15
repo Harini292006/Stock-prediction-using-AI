@@ -1,0 +1,258 @@
+import pandas as pd
+data =pd.read_csv('/content/yahoo_stock.csv')
+import pandas as pd
+import numpy as np
+
+# Assuming you have your data loaded in a DataFrame called 'data' with a 'Close' column and a DatetimeIndex
+
+# 1. Rolling Window Features
+# Moving Averages
+data['MA_5'] = data['Close'].rolling(window=5).mean()
+data['MA_10'] = data['Close'].rolling(window=10).mean()
+data['MA_20'] = data['Close'].rolling(window=20).mean()
+
+# RSI (Relative Strength Index) - You might need to install the 'ta' library
+# !pip install ta==0.10.0
+# from ta.momentum import RSIIndicator
+# rsi_indicator = RSIIndicator(close=data['Close'], window=14) # Default window is 14
+# data['RSI'] = rsi_indicator.rsi()
+
+# MACD (Moving Average Convergence Divergence)
+# from ta.trend import MACD
+# macd_indicator = MACD(close=data['Close'], window_slow=26, window_fast=12, window_sign=9) # Default windows
+# data['MACD'] = macd_indicator.macd()
+# data['MACD_Signal'] = macd_indicator.macd_signal()
+# data['MACD_Diff'] = macd_indicator.macd_diff()
+
+# Bollinger Bands
+# from ta.volatility import BollingerBands
+# bb_indicator = BollingerBands(close=data['Close'], window=20, window_dev=2) # Default window and deviation
+# data['BB_High'] = bb_indicator.bollinger_hband()
+# data['BB_Low'] = bb_indicator.bollinger_lband()
+
+# 2. Lagged Return Features
+data['Return_1'] = data['Close'].pct_change(1)  # 1-day lagged return
+data['Return_5'] = data['Close'].pct_change(5)  # 5-day lagged return
+# ... add more lags as needed
+
+# 3. Sentiment Score Lags (Assuming you have a 'Sentiment_Score' column)
+# data['Sentiment_Lag_1'] = data['Sentiment_Score'].shift(1)
+# data['Sentiment_Lag_2'] = data['Sentiment_Score'].shift(2)
+# ... add more sentiment lags as needed
+
+# Drop rows with NaN values introduced by lagging/rolling
+data.dropna(inplace=True)
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+from statsmodels.tsa.arima.model import ARIMA
+from sklearn.metrics import mean_squared_error
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, GRU, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+# from transformers import TFAutoModelForSequenceClassification
+
+# 1. ARIMA Model (Baseline)
+# Assuming your data is in a DataFrame called 'data' with a 'Close' column as the target variable
+
+# Split data into train and test sets
+train_data = data['Close'][:-30]  # Use all but the last 30 days for training
+test_data = data['Close'][-30:]   # Use the last 30 days for testing
+
+# Grid search for ARIMA parameters (p, d, q)
+# This is a simplified example; you might want to expand the search space
+best_arima_model = None
+best_mse = float('inf')
+
+for p in range(1, 6):
+    for d in range(0, 3):
+        for q in range(1, 6):
+            try:
+                model = ARIMA(train_data, order=(p, d, q))
+                model_fit = model.fit()
+                predictions = model_fit.predict(start=len(train_data), end=len(data)-1)
+                mse = mean_squared_error(test_data, predictions)
+
+                if mse < best_mse:
+                    best_mse = mse
+                    best_arima_model = model_fit
+            except:
+                continue
+
+print("Best ARIMA Model:", best_arima_model.summary())
+
+
+# 2. Deep Learning Models (LSTM, GRU, Transformer)
+# Data Preprocessing
+# Scale the data using MinMaxScaler
+scaler = MinMaxScaler()
+data['Close_Scaled'] = scaler.fit_transform(data['Close'].values.reshape(-1, 1))
+
+# Create sequences for LSTM/GRU/Transformer input
+def create_sequences(dataset, look_back=60):
+    X, Y = [], []
+    for i in range(len(dataset)-look_back-1):
+        a = dataset[i:(i+look_back), 0]
+        X.append(a)
+        Y.append(dataset[i + look_back, 0])
+    return np.array(X), np.array(Y)
+
+look_back = 60  # Number of previous days to consider
+X, Y = create_sequences(data[['Close_Scaled']].values, look_back)
+
+# Split into train and test sets
+train_size = int(len(X) * 0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+Y_train, Y_test = Y[:train_size], Y[train_size:]
+
+# LSTM Model
+model_lstm = Sequential()
+model_lstm.add(LSTM(units=50, return_sequences=True, input_shape=(X_train.shape[1], 1)))
+model_lstm.add(Dropout(0.2))
+model_lstm.add(LSTM(units=50))
+model_lstm.add(Dropout(0.2))
+model_lstm.add(Dense(units=1))
+model_lstm.compile(optimizer='adam', loss='mean_squared_error')
+
+# GRU Model
+model_gru = Sequential()
+model_gru.add(GRU(units=50, return_sequences=True, input_shape=(X_train.shape[1], 1)))
+model_gru.add(Dropout(0.2))
+model_gru.add(GRU(units=50))
+model_gru.add(Dropout(0.2))
+model_gru.add(Dense(units=1))
+model_gru.compile(optimizer='adam', loss='mean_squared_error')
+
+# # Transformer Encoder Model (Requires 'transformers' library)
+# # !pip install transformers==4.31.0
+# model_transformer = TFAutoModelForSequenceClassification.from_pretrained("bert-base-uncased", num_labels=1)
+# model_transformer.compile(optimizer='adam', loss='mean_squared_error')
+
+# Training the models
+early_stopping = EarlyStopping(monitor='val_loss', patience=10)
+
+model_lstm.fit(X_train, Y_train, epochs=100, batch_size=32, validation_split=0.2, callbacks=[early_stopping])
+model_gru.fit(X_train, Y_train, epochs=100, batch_size=32, validation_split=0.2, callbacks=[early_stopping])
+# model_transformer.fit(X_train, Y_train, epochs=100, batch_size=32, validation_split=0.2, callbacks=[early_stopping])
+
+# ... (Evaluation and prediction code)
+import pandas as pd
+import numpy as np
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dense, Dropout
+# ... (Import other necessary libraries)
+
+# ... (Assuming you have your data loaded in a DataFrame called 'data')
+
+# 1. Data Preprocessing (Scaling and Creating Sequences)
+# ... (Same as in previous code for LSTM/GRU)
+
+# 2. Time-Series Cross-Validation (Rolling Window)
+def timeseries_train_test_split(X, y, test_size=30):
+    """Splits time-series data into train and test sets using a rolling window."""
+    train_X, test_X = X[:-test_size], X[-test_size:]
+    train_y, test_y = y[:-test_size], y[-test_size:]
+    return train_X, test_X, train_y, test_y
+
+# 3. Model Training and Evaluation
+def evaluate_model(model, X, y, test_size=30):
+    """Trains and evaluates a model using time-series cross-validation."""
+
+    train_X, test_X, train_y, test_y = timeseries_train_test_split(X, y, test_size)
+
+    # Train the model
+    model.fit(train_X, train_y, epochs=100, batch_size=32, verbose=0)
+
+    # Make predictions
+    predictions = model.predict(test_X)
+
+    # Inverse transform to get actual prices
+    predictions = scaler.inverse_transform(predictions)
+    actual_prices = scaler.inverse_transform(test_y.reshape(-1, 1))
+
+    # Calculate metrics
+    rmse = np.sqrt(mean_squared_error(actual_prices, predictions))
+    mae = mean_absolute_error(actual_prices, predictions)
+
+    # Directional accuracy
+    actual_returns = np.diff(actual_prices.flatten())
+    predicted_returns = np.diff(predictions.flatten())
+    directional_accuracy = np.mean((actual_returns > 0) == (predicted_returns > 0)) * 100
+
+    return rmse, mae, directional_accuracy
+
+# Example usage:
+# Create your LSTM/GRU model (model_lstm, model_gru)
+# ...
+
+# Evaluate the LSTM model
+rmse, mae, directional_accuracy = evaluate_model(model_lstm, X, Y)
+print("LSTM - RMSE:", rmse)
+print("LSTM - MAE:", mae)
+print("LSTM - Directional Accuracy:", directional_accuracy)
+
+# Evaluate the GRU model
+# ... (Similar for other models)
+# Visualization & Interpretation using XGBoost and SHAP
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import shap
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+
+# Ensure inline plotting in Jupyter Notebook:
+%matplotlib inline
+
+# Load and preprocess the dataset
+try:
+    df = pd.read_csv('yahoo_stock.csv')  # Try current directory first
+except FileNotFoundError:
+    try:
+        df = pd.read_csv('/content/yahoo_stock.csv')  # Try /content/ if in Colab
+    except FileNotFoundError:
+        print("Error: yahoo_stock.csv not found. Please make sure the file is in the correct location.")
+        # You might want to add code here to handle the error (e.g., exit, prompt for file path)
+
+df['Date'] = pd.to_datetime(df['Date'])
+df = df.sort_values('Date')
+df['Day'] = df['Date'].dt.day
+df['Month'] = df['Date'].dt.month
+df['Year'] = df['Date'].dt.year
+df['DayOfWeek'] = df['Date'].dt.dayofweek
+
+# Define features and target
+features = ['Open', 'High', 'Low', 'Volume', 'Day', 'Month', 'Year', 'DayOfWeek']
+target = 'Close'
+X = df[features]
+y = df[target]
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+
+# Train model
+model = xgb.XGBRegressor(objective='reg:squarederror', n_estimators=100)
+model.fit(X_train, y_train)
+
+# Predict and plot actual vs predicted
+predictions = model.predict(X_test)
+plt.figure(figsize=(14, 6))
+plt.plot(df['Date'].iloc[-len(y_test):], y_test.values, label='Actual')
+plt.plot(df['Date'].iloc[-len(y_test):], predictions, label='Predicted')
+plt.xlabel('Date')
+plt.ylabel('Close Price')
+plt.title('Actual vs Predicted Prices')
+plt.legend()
+plt.tight_layout()
+plt.show()  # Display the plot within the Jupyter Notebook
+
+
+# (Optional) Safe SHAP Interpretation using TreeExplainer only
+# ... You can uncomment and use this section if you want to generate SHAP plots
+# explainer = shap.TreeExplainer(model)
+# shap_values = explainer.shap_values(X_test)
+# shap.summary_plot(shap_values, X_test, show=False)
+# plt.savefig('shap_summary_plot.png') # Save to a file if needed
+# plt.show() # Or display within the notebook
